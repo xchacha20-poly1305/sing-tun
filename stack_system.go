@@ -256,14 +256,17 @@ func (s *System) wintunLoop(winTun WinTun) {
 			release()
 			continue
 		}
-		if s.processPacket(packet) {
-			_, err = winTun.Write(packet)
+		buffer := buf.NewSize(len(packet))
+		common.Must1(buffer.Write(packet))
+		release()
+		if s.processPacket(buffer.Bytes()) {
+			_, err = winTun.Write(buffer.Bytes())
 			if err != nil {
 				s.logger.Trace(E.Cause(err, "write packet"))
 			}
 		}
 		s.dispatcher.Flush()
-		release()
+		buffer.Release()
 	}
 }
 

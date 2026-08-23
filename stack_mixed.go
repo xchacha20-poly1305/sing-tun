@@ -13,6 +13,7 @@ import (
 	"github.com/sagernet/gvisor/pkg/tcpip/stack"
 	"github.com/sagernet/gvisor/pkg/tcpip/transport/udp"
 	"github.com/sagernet/sing-tun/gtcpip/header"
+	"github.com/sagernet/sing/common"
 	"github.com/sagernet/sing/common/buf"
 	E "github.com/sagernet/sing/common/exceptions"
 )
@@ -134,14 +135,17 @@ func (m *Mixed) wintunLoop(winTun WinTun) {
 			release()
 			continue
 		}
-		if m.processPacket(packet) {
-			_, err = winTun.Write(packet)
+		buffer := buf.NewSize(len(packet))
+		common.Must1(buffer.Write(packet))
+		release()
+		if m.processPacket(buffer.Bytes()) {
+			_, err = winTun.Write(buffer.Bytes())
 			if err != nil {
 				m.logger.Trace(E.Cause(err, "write packet"))
 			}
 		}
 		m.dispatcher.Flush()
-		release()
+		buffer.Release()
 	}
 }
 

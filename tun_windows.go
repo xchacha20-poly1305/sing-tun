@@ -555,8 +555,8 @@ func (t *NativeTun) Close() error {
 	t.closeOnce.Do(func() {
 		t.close.Store(1)
 		windows.SetEvent(t.readWait)
-		t.running.Wait()
 		t.session.End()
+		t.running.Wait()
 		t.adapter.Close()
 		if t.fwpmSession != 0 {
 			winsys.FwpmEngineClose0(t.fwpmSession)
