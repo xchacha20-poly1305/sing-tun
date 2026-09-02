@@ -62,6 +62,8 @@ func (r *autoRedirect) setupNFTables() error {
 	}
 
 	if !r.shouldSkipOutputChain() {
+		// Shifted to leave room for the output pre-match chain at ChainPriorityMangle + 1,
+		// which the route chains below must not precede.
 		outputNATPriority := nftables.ChainPriorityMangle
 		if r.nfqueueEnabled {
 			outputNATPriority = nftables.ChainPriorityRef(*nftables.ChainPriorityMangle + 2)
@@ -135,12 +137,11 @@ func (r *autoRedirect) setupNFTables() error {
 		r.nftablesCreateRedirectPortReject(nft, table, chainInput)
 	}
 
+	// The pre-match chain cannot be ordered against these by priority, since the kernel dispatches
+	// every nftables NAT chain from the single nf_nat hook registered at NF_IP_PRI_NAT_DST;
+	// it is placed below NF_IP_PRI_NAT_DST instead, see nftablesCreatePreMatchChains.
 	preroutingNATPriority := nftables.ChainPriorityRef(*nftables.ChainPriorityNATDest + 1)
 	preroutingRoutePriority := nftables.ChainPriorityRef(*nftables.ChainPriorityNATDest + 2)
-	if r.nfqueueEnabled {
-		preroutingNATPriority = nftables.ChainPriorityRef(*nftables.ChainPriorityNATDest + 2)
-		preroutingRoutePriority = nftables.ChainPriorityRef(*nftables.ChainPriorityNATDest + 3)
-	}
 	chainPreRouting := nft.AddChain(&nftables.Chain{
 		Name:     "prerouting",
 		Table:    table,
@@ -415,11 +416,16 @@ func (r *autoRedirect) cleanupNFTables() {
 }
 
 func (r *autoRedirect) nftablesCreatePreMatchChains(nft *nftables.Conn, table *nftables.Table) error {
+	// A declared priority above NF_IP_PRI_NAT_DST would not put this chain after the NAT chains:
+	// the kernel registers a single nf_nat hook at NF_IP_PRI_NAT_DST and dispatches every NAT chain
+	// from it, so all of them run before any filter chain above that priority, including ours.
+	// The pre-match chain must run first, otherwise the mark rules in the prerouting chain set the
+	// connection mark before it and it returns early, disabling pre-matching for forwarded traffic.
 	chainPreroutingPreMatch := nft.AddChain(&nftables.Chain{
 		Name:     "prerouting_prematch",
 		Table:    table,
 		Hooknum:  nftables.ChainHookPrerouting,
-		Priority: nftables.ChainPriorityRef(*nftables.ChainPriorityNATDest + 1),
+		Priority: nftables.ChainPriorityRef(*nftables.ChainPriorityNATDest - 1),
 		Type:     nftables.ChainTypeFilter,
 	})
 	err := r.nftablesAddPreMatchRules(nft, table, chainPreroutingPreMatch, true)
